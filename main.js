@@ -15,31 +15,44 @@ function escapeHtml(s){
 
 /* Target iframe/window */
 const iframe = document.getElementById("aiIframe");
-const IFRAME_ORIGIN = "https://websim.com";
+// derive origin from iframe src to avoid mismatches
+const IFRAME_ORIGIN = (() => { try { return new URL(iframe.src).origin } catch(e){ return "https://websim.com" } })();
+
+/* simple queue until iframe is ready */
+let iframeReady = false;
+const messageQueue = [];
+function postToIframe(payload){
+    if (iframe && iframe.contentWindow && iframeReady) {
+        iframe.contentWindow.postMessage(payload, IFRAME_ORIGIN);
+        log({ sentToIframe: payload }, `sent -> ${IFRAME_ORIGIN}`);
+    } else {
+        messageQueue.push(payload);
+        log({ queued: payload }, "queued");
+    }
+}
 
 /* Receive messages from iframe */
 window.addEventListener("message", (ev) => {
-  // Only accept messages from the known iframe origin
-  if (!ev.origin || !ev.data) return;
-  if (ev.origin !== IFRAME_ORIGIN) {
-    // ignore others
-    return;
-  }
+  // Ensure message is from the expected iframe window and origin
+  if (!ev.source || ev.source !== iframe.contentWindow) return;
+  if (!ev.origin || ev.origin !== IFRAME_ORIGIN) return;
   // Log and display
   log({ fromIframe: ev.data }, `recv from ${ev.origin}`);
+  // mark iframe ready if it announces readiness
+  if (ev.data && ev.data.action === "iframe_ready") {
+    iframeReady = true;
+    // flush queue
+    while (messageQueue.length) postToIframe(messageQueue.shift());
+    log({ action: "flushed_queue" }, "iframe_ready");
+  }
 });
 
 /* Send structured generate request to iframe */
 function sendGenerate(type, prompt, options = {}) {
   const id = nanoid();
   const payload = { id, action: "generate", type, prompt, options };
-  // send to iframe if ready
-  if (iframe && iframe.contentWindow) {
-    iframe.contentWindow.postMessage(payload, IFRAME_ORIGIN);
-    log({ sentToIframe: payload }, `sent ${id} -> ${IFRAME_ORIGIN}`);
-  } else {
-    log({ error: "iframe_not_ready" }, "error");
-  }
+  // send via helper that queues if iframe not ready
+  postToIframe(payload);
 }
 
 /* UI bindings */
@@ -57,8 +70,8 @@ document.getElementById("focusIframe").addEventListener("click", () => {
 /* Optional: ping iframe on load to announce host */
 iframe.addEventListener("load", () => {
   const ping = { action: "host_ping", ts: Date.now() };
-  iframe.contentWindow.postMessage(ping, IFRAME_ORIGIN);
-  log({ action: "ping_sent" }, "iframe_load");
+  // mark ready optimistically only after load; the iframe can reply with iframe_ready
+  try { iframe.contentWindow.postMessage(ping, IFRAME_ORIGIN); log({ action: "ping_sent" }, "iframe_load"); } catch(e){ log({ error: "post_failed", e }, "iframe_load"); }
 });
 
 /* ...existing code... */
