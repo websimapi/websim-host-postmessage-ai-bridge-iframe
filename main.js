@@ -1,3 +1,5 @@
+
+```javascript
 import { nanoid } from "nanoid";
 
 /* ...existing code... */
@@ -23,8 +25,12 @@ let iframeReady = false;
 const messageQueue = [];
 function postToIframe(payload){
     if (iframe && iframe.contentWindow && iframeReady) {
-        // use wildcard to ensure cross-origin frames receive the message
-        iframe.contentWindow.postMessage(payload, "*");
+        // use derived origin to target the iframe safely
+        try {
+            iframe.contentWindow.postMessage(payload, IFRAME_ORIGIN);
+        } catch(e) {
+            iframe.contentWindow.postMessage(payload, "*");
+        }
         log({ sentToIframe: payload }, `sent -> ${IFRAME_ORIGIN}`);
     } else {
         messageQueue.push(payload);
@@ -74,7 +80,15 @@ document.getElementById("focusIframe").addEventListener("click", () => {
 /* Optional: ping iframe on load to announce host */
 iframe.addEventListener("load", () => {
   const ping = { action: "host_ping", ts: Date.now() };
-  try { iframe.contentWindow.postMessage(ping, "*"); log({ action: "ping_sent" }, "iframe_load"); } catch(e){ log({ error: "post_failed", e }, "iframe_load"); }
+  try {
+    iframe.contentWindow.postMessage(ping, IFRAME_ORIGIN);
+    log({ action: "ping_sent" }, "iframe_load");
+  } catch(e){
+    try { iframe.contentWindow.postMessage(ping, "*"); log({ action: "ping_sent_wildcard" }, "iframe_load"); } catch(err){ log({ error: "post_failed", e: err }, "iframe_load"); }
+  }
+  // If the iframe doesn't explicitly announce readiness, consider it ready after load and flush queued messages.
+  iframeReady = true;
+  while (messageQueue.length) postToIframe(messageQueue.shift());
 });
 
 /* ...existing code... */
