@@ -1,5 +1,3 @@
-
-```javascript
 import { nanoid } from "nanoid";
 
 /* ...existing code... */
