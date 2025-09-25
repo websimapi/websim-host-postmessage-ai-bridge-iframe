@@ -23,7 +23,8 @@ let iframeReady = false;
 const messageQueue = [];
 function postToIframe(payload){
     if (iframe && iframe.contentWindow && iframeReady) {
-        iframe.contentWindow.postMessage(payload, IFRAME_ORIGIN);
+        // use wildcard to ensure cross-origin frames receive the message
+        iframe.contentWindow.postMessage(payload, "*");
         log({ sentToIframe: payload }, `sent -> ${IFRAME_ORIGIN}`);
     } else {
         messageQueue.push(payload);
@@ -33,9 +34,12 @@ function postToIframe(payload){
 
 /* Receive messages from iframe */
 window.addEventListener("message", (ev) => {
-  // Ensure message is from the expected iframe window and origin
+  // Ensure message is from the expected iframe window (allow any origin from that window)
   if (!ev.source || ev.source !== iframe.contentWindow) return;
-  if (!ev.origin || ev.origin !== IFRAME_ORIGIN) return;
+  // Note: relax strict origin check to allow cross-origin iframe responses (log mismatches)
+  if (ev.origin && ev.origin !== IFRAME_ORIGIN) {
+    log({ warning: "origin_mismatch", expected: IFRAME_ORIGIN, got: ev.origin }, "security");
+  }
   // Log and display
   log({ fromIframe: ev.data }, `recv from ${ev.origin}`);
   // mark iframe ready if it announces readiness
@@ -70,8 +74,7 @@ document.getElementById("focusIframe").addEventListener("click", () => {
 /* Optional: ping iframe on load to announce host */
 iframe.addEventListener("load", () => {
   const ping = { action: "host_ping", ts: Date.now() };
-  // mark ready optimistically only after load; the iframe can reply with iframe_ready
-  try { iframe.contentWindow.postMessage(ping, IFRAME_ORIGIN); log({ action: "ping_sent" }, "iframe_load"); } catch(e){ log({ error: "post_failed", e }, "iframe_load"); }
+  try { iframe.contentWindow.postMessage(ping, "*"); log({ action: "ping_sent" }, "iframe_load"); } catch(e){ log({ error: "post_failed", e }, "iframe_load"); }
 });
 
 /* ...existing code... */
